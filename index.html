@@ -479,13 +479,19 @@ function tabTeam(){
     var secs=['Projects','Cost','Safety','Quality','Site','Personal'];
     var avg=list.length?list.reduce(function(a,x){return a+x.total},0)/list.length:null;
     var h='<div class="card"><div class="row"><div class="grow"><h2 style="margin:0">Team KPI '+S.year+'</h2><div class="mute">'+list.length+' engineers · Team average '+pct(avg)+'</div></div>'+
-      '<button class="btn sm sec" onclick="teamCsv()">⬇ CSV</button></div></div>';
-    h+='<div class="card tw"><table><thead><tr><th>#</th><th>Engineer</th>'+secs.map(function(s){return '<th>'+s+'</th>'}).join('')+'<th>Total</th></tr></thead><tbody>'+
-      list.map(function(u,i){return '<tr class="click" onclick="viewEng(\''+esc(u.empId)+'\',\''+esc(String(u.name).replace(/'/g,''))+'\')"><td>'+(i+1)+'</td><td><b>'+esc(u.name)+'</b><div class="mute">'+esc(u.empId)+(u.lastLogin?' · '+esc(String(u.lastLogin).slice(0,10)):' · never logged in')+'</div></td>'+
-        u.sections.map(function(p){return '<td>'+pill(p)+'</td>'}).join('')+'<td>'+pill(u.total)+'</td></tr>'}).join('')+
+      '<button class="btn sm sec" onclick="teamCsv()">⬇ CSV</button></div>'+
+      '<input id="tSearch" placeholder="Search name or Employee ID" style="margin-top:12px" oninput="$(\'tBody\').innerHTML=teamRows(this.value)"></div>';
+    h+='<div class="card tw"><table><thead><tr><th>#</th><th>Engineer</th>'+secs.map(function(s){return '<th>'+s+'</th>'}).join('')+'<th>Total</th></tr></thead><tbody id="tBody">'+teamRows('')+
       '</tbody></table>'+(list.length?'':'<p class="mute">No engineers yet. Add them from the Users tab.</p>')+'<p class="mute">Tap a name to see the full KPI of that engineer.</p></div>';
     $('main').innerHTML=h;
   });
+}
+function match(u,q){q=String(q||'').trim().toLowerCase();return !q||String(u.name).toLowerCase().indexOf(q)>-1||String(u.empId).toLowerCase().indexOf(q)>-1}
+function teamRows(q){
+  return LAST.team.map(function(u,i){
+    if(!match(u,q))return '';
+    return '<tr class="click" onclick="viewEng(\''+esc(u.empId)+'\',\''+esc(String(u.name).replace(/'/g,''))+'\')"><td>'+(i+1)+'</td><td><b>'+esc(u.name)+'</b><div class="mute">'+esc(u.empId)+(u.lastLogin?' · '+esc(String(u.lastLogin).slice(0,10)):' · never logged in')+'</div></td>'+
+      u.sections.map(function(p){return '<td>'+pill(p)+'</td>'}).join('')+'<td>'+pill(u.total)+'</td></tr>'}).join('');
 }
 function teamCsv(){
   var rows=[['Rank','EmpID','Name','Designation','Projects & Invoicing','Cost Control','Safety','Quality','Site Management','Personal Development','Total']];
@@ -499,14 +505,65 @@ function teamCsv(){
 function tabUsers(){
   return call('users',{}).then(function(list){
     LAST.users=list;
-    var h='<div class="card"><div class="row"><h2 class="grow" style="margin:0">Users ('+list.length+')</h2><button class="btn sm" onclick="editUser()">+ Add user</button></div>'+
-      '<p class="mute">A temporary password is shown when you add a user. Send it to the engineer by SMS or WhatsApp. They will set their own password at first login.</p></div>';
-    h+='<div class="card tw"><table><thead><tr><th>Emp ID</th><th>Name</th><th>Role</th><th>Active</th><th></th></tr></thead><tbody>'+
-      list.map(function(u){return '<tr><td>'+esc(u.empId)+'</td><td>'+esc(u.name)+'<div class="mute">'+esc(u.designation)+'</div></td><td>'+esc(u.role)+'</td><td>'+(u.active==='Yes'?'✅':'⛔')+'</td>'+
-        '<td style="white-space:nowrap"><button class="btn sm sec" onclick="editUser(\''+esc(u.empId)+'\')">Edit</button> <button class="btn sm sec" onclick="resetPw(\''+esc(u.empId)+'\')">Reset PW</button></td></tr>'}).join('')+
-      '</tbody></table></div>';
+    var h='<div class="card"><div class="row"><h2 class="grow" style="margin:0">Users ('+list.length+')</h2>'+
+      '<button class="btn sm sec" onclick="openBulk()">⬆ Bulk import</button><button class="btn sm" onclick="editUser()">+ Add user</button></div>'+
+      '<p class="mute">A temporary password is shown when you add a user. Send it to the engineer by SMS or WhatsApp. They will set their own password at first login.</p>'+
+      '<input placeholder="Search name or Employee ID" oninput="$(\'uBody\').innerHTML=userRows(this.value)"></div>';
+    h+='<div class="card tw"><table><thead><tr><th>Emp ID</th><th>Name</th><th>Role</th><th>Active</th><th></th></tr></thead><tbody id="uBody">'+userRows('')+'</tbody></table></div>';
     $('main').innerHTML=h;
   });
+}
+function userRows(q){
+  return LAST.users.filter(function(u){return match(u,q)}).map(function(u){return '<tr><td>'+esc(u.empId)+'</td><td>'+esc(u.name)+'<div class="mute">'+esc(u.designation)+'</div></td><td>'+esc(u.role)+'</td><td>'+(u.active==='Yes'?'✅':'⛔')+'</td>'+
+    '<td style="white-space:nowrap"><button class="btn sm sec" onclick="editUser(\''+esc(u.empId)+'\')">Edit</button> <button class="btn sm sec" onclick="resetPw(\''+esc(u.empId)+'\')">Reset PW</button></td></tr>'}).join('');
+}
+
+/* ---------- Bulk import (Admin) ---------- */
+function openBulk(){
+  openModal('<h2 style="margin-top:0">Bulk import users</h2>'+
+    '<p class="mute">Copy the columns from Excel and paste them below, one person per line:<br><b>Employee ID · Name · Designation · Role</b><br>Designation and Role are optional (Role: Engineer, Manager or Admin; default Engineer). A header row is skipped automatically. Existing IDs are skipped, never changed.</p>'+
+    '<textarea id="bulkTxt" rows="10" placeholder="PFC1010&#9;Ahmed Ali&#9;Site Engineer&#9;Engineer" oninput="bulkCheck()" style="font-family:monospace;font-size:13px;white-space:pre"></textarea>'+
+    '<div id="bulkInfo" class="mute" style="margin-top:8px"></div>'+
+    '<div class="row" style="margin-top:14px"><button class="btn grow" id="bulkGo" onclick="doBulk()" disabled>Import</button><button class="btn sec" onclick="closeModal()">Cancel</button></div>');
+}
+function bulkParse(){
+  var out=[];
+  String($('bulkTxt').value||'').split(/\r?\n/).forEach(function(line){
+    if(!line.trim())return;
+    var c=(line.indexOf('\t')>-1?line.split('\t'):line.split(',')).map(function(x){return x.trim()});
+    if(!out.length&&/emp|id/i.test(c[0])&&/name/i.test(c[1]||''))return;
+    out.push({empId:c[0]||'',name:c[1]||'',designation:c[2]||'',role:c[3]||''});
+  });
+  return out;
+}
+function bulkCheck(){
+  var l=bulkParse(),bad=l.filter(function(u){return !/^[A-Za-z0-9_-]{2,20}$/.test(u.empId)||!u.name}).length;
+  $('bulkInfo').innerHTML=l.length?('<b>'+l.length+'</b> people found'+(bad?' · <span class="low">'+bad+' with a missing ID or name (will be skipped)</span>':'')):'';
+  $('bulkGo').disabled=!l.length||l.length>300;
+  $('bulkGo').textContent=l.length>300?'Max 300 per import':('Import '+(l.length||'')+' users');
+}
+function doBulk(){
+  var l=bulkParse();if(!l.length)return;
+  call('bulkUsers',{users:l}).then(function(r){
+    LAST.bulk=r.created;
+    var h='<h2 style="margin-top:0">Import finished</h2>'+
+      '<div class="card"><b class="good">'+r.created.length+' users created</b>'+(r.skipped.length?' · <b class="low">'+r.skipped.length+' skipped</b>':'')+'</div>';
+    if(r.created.length) h+='<p><b>Download the login details now.</b> The temporary passwords are not shown again.</p>'+
+      '<button class="btn" style="width:100%" onclick="bulkCsv()">⬇ Download login details (CSV)</button>';
+    if(r.skipped.length) h+='<div class="tw" style="margin-top:14px"><table><thead><tr><th>Line</th><th>Emp ID</th><th>Name</th><th>Reason</th></tr></thead><tbody>'+
+      r.skipped.map(function(s){return '<tr><td>'+s.line+'</td><td>'+esc(s.empId)+'</td><td>'+esc(s.name)+'</td><td class="low">'+esc(s.reason)+'</td></tr>'}).join('')+'</tbody></table></div>';
+    h+='<button class="btn sec" style="width:100%;margin-top:12px" onclick="closeModal();render()">Close</button>';
+    openModal(h);
+  }).catch(fail);
+}
+function bulkCsv(){
+  var link=/github\.io$/.test(location.hostname)?location.origin+location.pathname:'';
+  var rows=[['Employee ID','Name','Role','Temporary password','Message to send']];
+  (LAST.bulk||[]).forEach(function(u){rows.push([u.empId,u.name,u.role,u.tempPass,
+    'PFC KPI Tracker'+(link?' '+link:'')+' | ID: '+u.empId+' | Temp password: '+u.tempPass+' | Set a new password at first login.'])});
+  var csv=rows.map(function(r){return r.map(function(c){return '"'+String(c).replace(/"/g,'""')+'"'}).join(',')}).join('\n');
+  var a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+csv],{type:'text/csv'}));a.download='KPI_login_details.csv';
+  document.body.appendChild(a);a.click();a.remove();
 }
 function editUser(id){
   var u=id?LAST.users.filter(function(x){return x.empId===id})[0]:{role:'Engineer',active:'Yes'};
